@@ -180,6 +180,8 @@ contract KipuBankV3 is AccessControl, Pausable, ReentrancyGuard {
         i_USDC = _USDC;
         i_uniswapRouter = IUniswapV2Router02(_uniswapRouter);
         i_WETH = i_uniswapRouter.WETH();
+        s_depositCount = 0;
+        s_withdrawCount = 0;
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -384,39 +386,43 @@ contract KipuBankV3 is AccessControl, Pausable, ReentrancyGuard {
         }
     }
 
-    /**
-     * @notice Swaps an ERC20 token for USDC.
-     * @dev Assumes token -> WETH -> USDC path if not WETH.
-     */
+   
     function _swapTokenToUSDC(address _token, uint256 _amountToken)
         internal
         returns (uint256 usdcReceived)
     {
-        address[] memory path;
-        if (_token == i_WETH) {
-            // Path: WETH -> USDC
-            path = new address[](2);
-            path[0] = i_WETH;
-            path[1] = i_USDC;
-        } else {
-            // Path: Token -> WETH -> USDC
-            path = new address[](3);
-            path[0] = _token;
-            path[1] = i_WETH;
-            path[2] = i_USDC;
+        address[] memory directPath;
+        directPath = new address[](2);
+        directPath[0] = token;
+        directPath[1] = i_USDC;
+
+        uint256 amountOutMinDirect = _getAmountOutMin(amountToken, directPath);
+        try i_uniswapRouter.swapExactTokensForTokens(
+            amountToken,
+            amountOutMinDirect,
+            directPath,
+            address(this),
+            block.timestamp
+        ) returns (uint[] memory amounts) {
+            return amounts[amounts.length - 1];
+        } catch {
         }
 
-        uint256 amountOutMin = _getAmountOutMin(_amountToken, path);
+        address[] memory path;
+        path = new address[](3);
+        path[0] = token;
+        path[1] = i_WETH;
+        path[2] = i_USDC;
 
-        try
-            i_uniswapRouter.swapExactTokensForTokens(
-                _amountToken,
-                amountOutMin,
-                path,
-                address(this),
-                block.timestamp
-            )
-        returns (uint[] memory amounts) {
+        uint256 amountOutMin = _getAmountOutMin(amountToken, path);
+
+        try i_uniswapRouter.swapExactTokensForTokens(
+            amountToken,
+            amountOutMin,
+            path,
+            address(this),
+            block.timestamp
+        ) returns (uint[] memory amounts) {
             usdcReceived = amounts[amounts.length - 1];
         } catch {
             revert InvalidSwapFailed();
